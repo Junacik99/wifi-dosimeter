@@ -70,7 +70,14 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startScan() {
         _isScanning.value = true
-        wifiScanner.startScan()
+        val success = wifiScanner.startScan()
+
+        if (!success) {
+            // Scan was throttled or failed to start.
+            // We set isScanning to false immediately so the button isn't stuck.
+            _isScanning.value = false
+            // You could also emit a Toast or Error state here
+        }
     }
     
     fun setCurrentLocation(locationName: String) {

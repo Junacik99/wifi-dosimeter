@@ -1,11 +1,15 @@
 package com.example.mc_a3.utils
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.wifi.ScanResult
 import android.net.wifi.WifiManager
+import androidx.annotation.RequiresPermission
+import androidx.core.app.ActivityCompat
 import com.example.mc_a3.model.LocationData
 import com.example.mc_a3.model.WifiSignal
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,10 +23,25 @@ class WifiScanner(private val context: Context) {
     
     // Broadcast receiver for WiFi scan results
     private val wifiScanReceiver = object : BroadcastReceiver() {
+        @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
                 val success = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false)
                 if (success) {
+                    if (ActivityCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.ACCESS_FINE_LOCATION
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        // TODO: Consider calling
+                        //    ActivityCompat#requestPermissions
+                        // here to request the missing permissions, and then overriding
+                        //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                        //                                          int[] grantResults)
+                        // to handle the case where the user grants the permission. See the documentation
+                        // for ActivityCompat#requestPermissions for more details.
+                        return
+                    }
                     _scanResults.value = wifiManager.scanResults
                 }
             }
