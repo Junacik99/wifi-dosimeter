@@ -12,26 +12,43 @@ import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.mc_a3.ui.theme.MC_A3Theme
 import com.example.mc_a3.viewmodel.WifiViewModel
+import kotlinx.coroutines.delay
 
 class DosimeterActivity : ComponentActivity() {
     private val viewModel: WifiViewModel by viewModels()
@@ -90,51 +107,131 @@ fun DosimeterApp(
 ) {
     val scanResults by viewModel.scanResults.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
+    
+    // State to control periodic scanning
+    var isAutoScanning by remember { mutableStateOf(false) }
 
-    // Find the maximum RSSI value (strongest signal)
-    val strongestSignal = scanResults.maxByOrNull { it.level }?.level
+    // ADJUSTABLE DELAY: Internal variable for scan frequency
+    val scanIntervalMs = 5000L
+
+    // Periodic Timer Logic
+    LaunchedEffect(isAutoScanning) {
+        if (isAutoScanning) {
+            while (true) {
+                if (!isScanning) {
+                    viewModel.startScan()
+                }
+                delay(scanIntervalMs)
+            }
+        }
+    }
+
+    // Memoize strongest AP for performance
+    val strongestAp = remember(scanResults) {
+        scanResults.maxByOrNull { it.level }
+    }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text(
             text = "WiFi Dosimeter",
-            style = MaterialTheme.typography.headlineMedium
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.primary
         )
-        Spacer(modifier = Modifier.padding(16.dp))
-        Button(
-            onClick = { viewModel.startScan() },
-            modifier = Modifier.padding(10.dp),
-            enabled = !isScanning
-        ) {
-            Text(if (isScanning) "Scanning..." else "Calculate")
-        }
-        Spacer(modifier = Modifier.padding(16.dp))
-        Text(
-            text = strongestSignal?.let { "$it dBm" } ?: "No signal detected",
-            fontSize = 48.sp,
-            style = MaterialTheme.typography.bodyLarge
-        )
-        
-        if (strongestSignal != null) {
-            val strongestAp = scanResults.maxByOrNull { it.level }
-            val ssid = strongestAp?.wifiSsid
-            Text(
-                text = "SSID: ${if (ssid.toString().isEmpty()) "Unknown" else ssid}",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        }
-    }
-}
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
-@Preview(showBackground = true)
-@Composable
-fun DosimeterPreview() {
-    MC_A3Theme {
-        DosimeterApp()
+        // Status indicator
+        Text(
+            text = when {
+                isScanning -> "Refreshing..."
+                isAutoScanning -> "Live Monitoring"
+                else -> "Stopped"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = when {
+                isScanning -> MaterialTheme.colorScheme.secondary
+                isAutoScanning -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.outline
+            },
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        Text(
+            text = strongestAp?.let { "${it.level} dBm" } ?: "---",
+            fontSize = 64.sp,
+            style = MaterialTheme.typography.displayLarge,
+            color = if (isAutoScanning || isScanning) MaterialTheme.colorScheme.onSurface 
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        strongestAp?.let { ap ->
+            val ssid = ap.SSID.ifEmpty { "Hidden Network" }.removeSurrounding("\"")
+
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(text = "SSID: $ssid", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "BSSID: ${ap.BSSID}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        // Start/Stop Toggle Button
+        Button(
+            onClick = { isAutoScanning = !isAutoScanning },
+            modifier = Modifier.width(200.dp),
+            colors = if (isAutoScanning) {
+                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
+            } else {
+                ButtonDefaults.buttonColors()
+            }
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = if (isAutoScanning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(if (isAutoScanning) "Stop Tracking" else "Start Tracking")
+            }
+        }
+        
+        // Manual Scan Button
+        if (!isAutoScanning) {
+            TextButton(
+                onClick = { viewModel.startScan() },
+                enabled = !isScanning,
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text("Manual Scan")
+            }
+        }
     }
 }
