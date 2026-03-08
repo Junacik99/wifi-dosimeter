@@ -2,6 +2,8 @@ package com.example.mc_a3
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.PlaybackParams
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -50,6 +52,8 @@ import com.example.mc_a3.ui.theme.MC_A3Theme
 import com.example.mc_a3.viewmodel.WifiViewModel
 import kotlinx.coroutines.delay
 
+private var mediaPlayer: MediaPlayer? = null
+
 class DosimeterActivity : ComponentActivity() {
     private val viewModel: WifiViewModel by viewModels()
 
@@ -76,6 +80,10 @@ class DosimeterActivity : ComponentActivity() {
 
         checkAndRequestPermissions()
 
+        // Init media player for sound effects
+        mediaPlayer = MediaPlayer.create(this, R.raw.dosimeter_sound)
+        mediaPlayer?.isLooping = true
+
         setContent {
             MC_A3Theme {
                 Surface(
@@ -97,6 +105,12 @@ class DosimeterActivity : ComponentActivity() {
             permissionLauncher.launch(permissionsToRequest)
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mediaPlayer?.release()
+        mediaPlayer = null
+    }
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
@@ -114,6 +128,10 @@ fun DosimeterApp(
     // ADJUSTABLE DELAY: Internal variable for scan frequency
     val scanIntervalMs = 5000L
 
+    // Bool if mediaplayer is playing
+    var isPlaying by remember { mutableStateOf(false) }
+
+
     // Periodic Timer Logic
     LaunchedEffect(isAutoScanning) {
         if (isAutoScanning) {
@@ -128,7 +146,54 @@ fun DosimeterApp(
 
     // Memoize strongest AP for performance
     val strongestAp = remember(scanResults) {
-        scanResults.maxByOrNull { it.level }
+        // TODO:
+        // Change back to this, potentionally combinde with ssid
+        // scanResults.maxByOrNull { it.level }
+        val targetSsid = "Anbu hidden base"
+
+        scanResults
+            .filter { it.wifiSsid.toString() == targetSsid || it.wifiSsid.toString() == "\"$targetSsid\"" }.maxByOrNull { it.level }
+
+    }
+
+    val minIntensity = -80
+    val maxIntensity = -10
+    val minSpeed = 0.1f
+    val maxSpeed = 1.5f
+    // Play sound effect when strongest AP, auto-scanning state or scanning state changes
+    LaunchedEffect(strongestAp, isAutoScanning, isScanning) {
+        val level = strongestAp?.level
+        // Lowered threshold to -90 to match your speed requirements
+        val shouldPlay = level != null && level >= minIntensity && (isAutoScanning || isScanning)
+        
+        if (shouldPlay) {
+            // Calculate playback speed based on signal intensity
+            // Range: -90 dBm (0.7 speed) to -30 dBm (2.0 speed)
+            val clampedLevel = level.coerceIn(minIntensity, maxIntensity)
+            // Normalizing -90..-30 to 0..1 range: (level - (-90)) / (-30 - (-90)) = (level + 90) / 60
+            val normalizedLevel = (clampedLevel - minIntensity.toFloat()) / (maxIntensity - minIntensity).toFloat()
+            // Map 0..1 range to 0.7..2.0 range: 0.7 + (normalized * (2.0 - 0.7))
+            val speed = minSpeed + (normalizedLevel * (maxSpeed - minSpeed))
+            
+            try {
+                mediaPlayer?.let {
+                    // Update playback speed if supported (API 23+)
+                    it.playbackParams = it.playbackParams.setSpeed(speed)
+                }
+            } catch (e: Exception) {
+                // Some devices/states might not support dynamic speed changes
+            }
+
+            if (!isPlaying) {
+                mediaPlayer?.start()
+                isPlaying = true
+            }
+        } else {
+            if (isPlaying) {
+                mediaPlayer?.pause()
+                isPlaying = false
+            }
+        }
     }
 
     Column(
@@ -173,7 +238,7 @@ fun DosimeterApp(
         Spacer(modifier = Modifier.height(16.dp))
 
         strongestAp?.let { ap ->
-            val ssid = ap.SSID.ifEmpty { "Hidden Network" }.removeSurrounding("\"")
+            val ssid = ap.wifiSsid.toString().ifEmpty { "Hidden Network" }.removeSurrounding("\"")
 
             Card(
                 colors = CardDefaults.cardColors(
