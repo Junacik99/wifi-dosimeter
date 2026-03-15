@@ -12,7 +12,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +46,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -113,6 +121,17 @@ class DosimeterActivity : ComponentActivity() {
     }
 }
 
+fun convertDbmToDosimetry(
+    dbm: Int,
+    minDbm: Int,
+    maxDbm: Int,
+    minDosimetry: Int = 0,
+    maxDosimetry: Int = 192)
+: Int {
+    // Scales value from one range to another
+    return ((dbm - minDbm) * (maxDosimetry - minDosimetry) / (maxDbm - minDbm) + minDosimetry)
+}
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,7 +168,7 @@ fun DosimeterApp(
         // TODO:
         // Change back to this, potentionally combinde with ssid
         // scanResults.maxByOrNull { it.level }
-        val targetSsid = "Anbu hidden base"
+        val targetSsid = "MartinNET"
 
         scanResults
             .filter { it.wifiSsid.toString() == targetSsid || it.wifiSsid.toString() == "\"$targetSsid\"" }.maxByOrNull { it.level }
@@ -196,107 +215,71 @@ fun DosimeterApp(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "WiFi Dosimeter",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
+    val digitalFont = FontFamily(
+        Font(R.font.digital)
+    )
+
+    Box(modifier = Modifier.fillMaxSize()){
+        Image(
+            painter = painterResource(id = R.drawable.dosimeter),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxWidth().padding(top = 50.dp)
         )
 
-        // Status indicator
-        Text(
-            text = when {
-                isScanning -> "Refreshing..."
-                isAutoScanning -> "Live Monitoring"
-                else -> "Stopped"
-            },
-            style = MaterialTheme.typography.labelMedium,
-            color = when {
-                isScanning -> MaterialTheme.colorScheme.secondary
-                isAutoScanning -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.outline
-            },
-            modifier = Modifier.padding(top = 8.dp)
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
 
-        Spacer(modifier = Modifier.height(48.dp))
-
-        Text(
-            text = strongestAp?.let { "${it.level} dBm" } ?: "---",
-            fontSize = 64.sp,
-            style = MaterialTheme.typography.displayLarge,
-            color = if (isAutoScanning || isScanning) MaterialTheme.colorScheme.onSurface 
-                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        strongestAp?.let { ap ->
-            val ssid = ap.wifiSsid.toString().ifEmpty { "Hidden Network" }.removeSurrounding("\"")
-
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                ),
+            Text(
+                text = strongestAp?.let { "${convertDbmToDosimetry(
+                    dbm = it.level,
+                    minDbm = minIntensity,
+                    maxDbm = maxIntensity,
+                    )}" } ?: "----",
+                fontSize = 80.sp,
+                style = MaterialTheme.typography.displayLarge,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                    .padding(top = 75.dp, end = 40.dp)
+                    .align(Alignment.End),
+                textAlign = TextAlign.Right,
+                fontFamily = digitalFont,
+                color = Color.Black
+            )
+
+
+
+            Spacer(modifier = Modifier.height(450.dp))
+
+            // Start/Stop Toggle Button
+            Button(
+                onClick = { isAutoScanning = !isAutoScanning },
+                modifier = Modifier.width(200.dp),
+                colors = if (isAutoScanning) {
+                    ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
+                } else {
+                    ButtonDefaults.buttonColors()
+                }
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text(text = "SSID: $ssid", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "BSSID: ${ap.BSSID}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    Icon(
+                        imageVector = if (isAutoScanning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
                     )
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isAutoScanning) "Stop Tracking" else "Start Tracking")
                 }
             }
-        }
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        // Start/Stop Toggle Button
-        Button(
-            onClick = { isAutoScanning = !isAutoScanning },
-            modifier = Modifier.width(200.dp),
-            colors = if (isAutoScanning) {
-                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
-            } else {
-                ButtonDefaults.buttonColors()
-            }
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = if (isAutoScanning) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(if (isAutoScanning) "Stop Tracking" else "Start Tracking")
-            }
-        }
-        
-        // Manual Scan Button
-        if (!isAutoScanning) {
-            TextButton(
-                onClick = { viewModel.startScan() },
-                enabled = !isScanning,
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text("Manual Scan")
-            }
+            
         }
     }
+
+
 }
