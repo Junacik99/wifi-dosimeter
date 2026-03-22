@@ -3,7 +3,6 @@ package com.example.mc_a3
 import android.Manifest
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
-import android.media.PlaybackParams
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -29,18 +28,16 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,6 +56,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.mc_a3.ui.theme.MC_A3Theme
 import com.example.mc_a3.viewmodel.WifiViewModel
 import kotlinx.coroutines.delay
+import kotlin.random.Random
+import kotlin.text.format
+import java.util.Locale
 
 private var mediaPlayer: MediaPlayer? = null
 
@@ -150,6 +150,15 @@ fun DosimeterApp(
     // Bool if mediaplayer is playing
     var isPlaying by remember { mutableStateOf(false) }
 
+    // State for random signal fluctuation
+    var levelOffset by remember { mutableFloatStateOf(0f) }
+    val randomAddInterval = 500L
+    val randomAddMin = -2f
+    val randomAddMax = 2f
+
+    val useSsid = true
+    val targetSsid = "Anbu hidden base"
+
 
     // Periodic Timer Logic
     LaunchedEffect(isAutoScanning) {
@@ -163,17 +172,29 @@ fun DosimeterApp(
         }
     }
 
+    // High-frequency fluctuation timer (every 0.5s)
+    LaunchedEffect(isAutoScanning) {
+        if (isAutoScanning){
+            while(true){
+                levelOffset = randomAddMin + (Random.nextFloat() * (randomAddMax - randomAddMin))
+                delay(randomAddInterval)
+            }
+        }
+        else{
+            levelOffset = 0f
+        }
+    }
+
     // Memoize strongest AP for performance
     val strongestAp = remember(scanResults) {
-        // TODO:
-        // Change back to this, potentionally combinde with ssid
-        // scanResults.maxByOrNull { it.level }
-        val targetSsid = "MartinNET"
-
-        scanResults
-            .filter { it.wifiSsid.toString() == targetSsid || it.wifiSsid.toString() == "\"$targetSsid\"" }.maxByOrNull { it.level }
-
+        if (useSsid)
+            scanResults
+                .filter { it.wifiSsid.toString() == targetSsid || it.wifiSsid.toString() == "\"$targetSsid\"" }.maxByOrNull { it.level }
+        else
+            scanResults.maxByOrNull { it.level }
     }
+
+
 
     val minIntensity = -80
     val maxIntensity = -10
@@ -224,7 +245,9 @@ fun DosimeterApp(
             painter = painterResource(id = R.drawable.dosimeter),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().padding(top = 50.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 50.dp)
         )
 
         Column(
@@ -233,13 +256,19 @@ fun DosimeterApp(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            val rawDosimetry = remember(strongestAp) {
+                strongestAp?.let {
+                    convertDbmToDosimetry(
+                        dbm = it.level,
+                        minDbm = minIntensity,
+                        maxDbm = maxIntensity,
+                    )
+                }
+            }
+            val displayDosimetry = rawDosimetry?.let { it + levelOffset }
 
             Text(
-                text = strongestAp?.let { "${convertDbmToDosimetry(
-                    dbm = it.level,
-                    minDbm = minIntensity,
-                    maxDbm = maxIntensity,
-                    )}" } ?: "----",
+                text = displayDosimetry?.let { String.format(Locale.US, "%.2f", it) } ?: "----",
                 fontSize = 80.sp,
                 style = MaterialTheme.typography.displayLarge,
                 modifier = Modifier
