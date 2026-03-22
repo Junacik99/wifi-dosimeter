@@ -92,13 +92,20 @@ class DosimeterActivity : ComponentActivity() {
         mediaPlayer = MediaPlayer.create(this, R.raw.dosimeter_sound)
         mediaPlayer?.isLooping = true
 
+        val useSsid = intent.getBooleanExtra("USE_SSID", false)
+        val targetSsid = intent.getStringExtra("TARGET_SSID") ?: ""
+
         setContent {
             MC_A3Theme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    DosimeterApp(viewModel)
+                    DosimeterApp(
+                        viewModel,
+                        useSsid,
+                        targetSsid
+                    )
                 }
             }
         }
@@ -136,18 +143,20 @@ fun convertDbmToDosimetry(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DosimeterApp(
-    viewModel: WifiViewModel = viewModel()
+    viewModel: WifiViewModel = viewModel(),
+    useSsid: Boolean,
+    targetSsid: String
 ) {
     val scanResults by viewModel.scanResults.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     
     // State to control periodic scanning
-    var isAutoScanning by remember { mutableStateOf(false) }
+    var isAutoScanning by remember { mutableStateOf(true) }
 
     // ADJUSTABLE DELAY: Internal variable for scan frequency
     val scanIntervalMs = 5000L
 
-    // Bool if mediaplayer is playing
+    // Bool if media player is playing
     var isPlaying by remember { mutableStateOf(false) }
 
     // State for random signal fluctuation
@@ -156,8 +165,7 @@ fun DosimeterApp(
     val randomAddMin = -2f
     val randomAddMax = 2f
 
-    val useSsid = true
-    val targetSsid = "Anbu hidden base"
+
 
 
     // Periodic Timer Logic
@@ -185,7 +193,7 @@ fun DosimeterApp(
         }
     }
 
-    // Memoize strongest AP for performance
+    // Memoize the strongest AP for performance
     val strongestAp = remember(scanResults) {
         if (useSsid)
             scanResults
@@ -208,7 +216,6 @@ fun DosimeterApp(
         
         if (shouldPlay) {
             // Calculate playback speed based on signal intensity
-            // Range: -90 dBm (0.7 speed) to -30 dBm (2.0 speed)
             val clampedLevel = level.coerceIn(minIntensity, maxIntensity)
             // Normalizing -90..-30 to 0..1 range: (level - (-90)) / (-30 - (-90)) = (level + 90) / 60
             val normalizedLevel = (clampedLevel - minIntensity.toFloat()) / (maxIntensity - minIntensity).toFloat()
@@ -240,74 +247,68 @@ fun DosimeterApp(
         Font(R.font.digital)
     )
 
-    Box(modifier = Modifier.fillMaxSize()){
-        Image(
-            painter = painterResource(id = R.drawable.dosimeter),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 50.dp)
-        )
+    val rawDosimetry = remember(strongestAp) {
+        strongestAp?.let {
+            convertDbmToDosimetry(
+                dbm = it.level,
+                minDbm = minIntensity,
+                maxDbm = maxIntensity,
+            )
+        }
+    }
+    val displayDosimetry = rawDosimetry?.let { it + levelOffset }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            val rawDosimetry = remember(strongestAp) {
-                strongestAp?.let {
-                    convertDbmToDosimetry(
-                        dbm = it.level,
-                        minDbm = minIntensity,
-                        maxDbm = maxIntensity,
-                    )
-                }
-            }
-            val displayDosimetry = rawDosimetry?.let { it + levelOffset }
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+        ){
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 50.dp)) {
+            Image(
+                painter = painterResource(id = R.drawable.dosimeter),
+                contentDescription = null,
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth()
+            )
 
             Text(
                 text = displayDosimetry?.let { String.format(Locale.US, "%.2f", it) } ?: "----",
                 fontSize = 80.sp,
                 style = MaterialTheme.typography.displayLarge,
                 modifier = Modifier
-                    .padding(top = 75.dp, end = 40.dp)
-                    .align(Alignment.End),
+                    .align(Alignment.TopEnd)
+                    .padding(top = 50.dp, end = 45.dp),
                 textAlign = TextAlign.Right,
                 fontFamily = digitalFont,
                 color = Color.Black
             )
-
-
-
-            Spacer(modifier = Modifier.height(450.dp))
-
-            // Start/Stop Toggle Button
-            Button(
-                onClick = { isAutoScanning = !isAutoScanning },
-                modifier = Modifier.width(200.dp),
-                colors = if (isAutoScanning) {
-                    ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
-                } else {
-                    ButtonDefaults.buttonColors()
-                }
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = if (isAutoScanning) Icons.Default.Stop else Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (isAutoScanning) "Stop Tracking" else "Start Tracking")
-                }
-            }
-            
         }
+
+
+        // Column(
+        //     modifier = Modifier
+        //         .fillMaxSize()
+        //         .padding(24.dp),
+        //     horizontalAlignment = Alignment.CenterHorizontally,
+        //     verticalArrangement = Arrangement.Center
+        //
+        // ) {
+        //
+        //
+        //     Text(
+        //         text = displayDosimetry?.let { String.format(Locale.US, "%.2f", it) } ?: "----",
+        //         fontSize = 80.sp,
+        //         style = MaterialTheme.typography.displayLarge,
+        //         modifier = Modifier
+        //             .padding(top = 75.dp, end = 40.dp)
+        //             .align(Alignment.End),
+        //         textAlign = TextAlign.Right,
+        //         fontFamily = digitalFont,
+        //         color = Color.Black
+        //     )
+        //
+        // }
     }
 
 
